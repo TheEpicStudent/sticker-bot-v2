@@ -41,13 +41,9 @@ import {
 function stickerFailureReason(error: unknown): string {
   if (error instanceof BotBusyError) return error.message;
   const message = error instanceof Error ? error.message : "";
-  const proxyStatus =
-    /^Emoji proxy rejected (upload|remove) \(HTTP (\d{3})\)$/.exec(message);
-  if (proxyStatus) return `Emoji proxy returned HTTP ${proxyStatus[2]}.`;
   const safeMessages = new Set([
-    "Invalid emoji proxy URL",
-    "Emoji proxy request failed; check proxy activity before retrying",
-    "Emoji exceeds the proxy's 128 KiB limit",
+    "Slack emoji request failed; check the user token and API before retrying",
+    "Emoji exceeds Slack's 128 KiB limit",
     "Invalid sticker name or dimensions",
     "Sticker grid exceeds image dimensions",
     "Untrusted Slack file URL",
@@ -67,6 +63,10 @@ function stickerFailureReason(error: unknown): string {
       "token_revoked",
       "not_in_channel",
       "channel_not_found",
+      "invalid_arg_name",
+      "not_allowed",
+      "already_exists",
+      "restricted_action",
       "already_reacted",
       "ratelimited",
       "cant_delete_message",
@@ -1012,7 +1012,7 @@ app.command(/\/delete-sticker.*/, async ({ command, ack, respond }) => {
   } catch {
     await markJobFailed(title, command.user_id).catch(() => {});
     await respond(
-      "Deletion stopped. Progress is retained; retry /delete-sticker to continue. If proxy ownership is unavailable for an uncertain upload, contact the operator.",
+      "Deletion stopped. Progress is retained; retry /delete-sticker to continue.",
     );
     return;
   }

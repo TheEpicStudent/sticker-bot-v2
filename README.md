@@ -57,11 +57,8 @@ database. Run one bot worker per workspace so its resource limits apply globally
 
 Image previews allow two simultaneous jobs and five requests per user per minute.
 Sticker creation allows two simultaneous jobs and six per user per hour, with a
-ten-minute deadline. A square image defaults to a 3×3 grid. Partial and uncertain
-uploads are recorded in `sticker_jobs`; `/delete-sticker <name>` cleans up the
-creator's failed job and resumes interrupted deletions. If the proxy cannot
-confirm ownership of an uncertain upload, the bot keeps the record for operator
-reconciliation instead of discarding progress or replaying the upload.
+ten-minute deadline. A square image defaults to a 3×3 grid. Partial uploads are recorded in `sticker_jobs`; `/delete-sticker <name>` cleans
+up the creator's failed job and resumes interrupted deletions.
 
 SvelteKit 3 uses TypeScript 6's compiler API, while the bot/database CLI uses
 TypeScript 7. `bunfig.toml` isolates workspace dependencies to keep both versions

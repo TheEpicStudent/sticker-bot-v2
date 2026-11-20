@@ -3,7 +3,6 @@ import type { App, StringIndexed } from "@slack/bolt";
 import sharp from "sharp";
 
 import { make67Sticker } from "./67ify.ts";
-import { emojiProxyRequest } from "./emoji-proxy.ts";
 import { env } from "./env";
 import {
   downloadSlackImage,
@@ -11,6 +10,7 @@ import {
   validateImageMetadata,
   validateStickerInput,
 } from "./security.ts";
+import { slackEmojiRequest } from "./slack-emoji.ts";
 
 async function updateEmojiCache() {
   if (!env.EMOJI_CACHE_UPDATE_URL || !env.EMOJI_CACHE_UPDATE_TOKEN) return;
@@ -87,17 +87,7 @@ export async function deleteEmojis({
 }) {
   const signal = AbortSignal.timeout(10 * 60_000);
   for (const name of emojis) {
-    await emojiProxyRequest(
-      env.SLACK_EMOJI_PROXY_URL,
-      env.SLACK_EMOJI_PROXY_TOKEN,
-      "remove",
-      {
-        method: "DELETE",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name }),
-        signal,
-      },
-    );
+    await slackEmojiRequest(env.SLACK_USER_TOKEN, "remove", { name, signal });
     await onDeleted?.(name);
   }
 }
@@ -114,16 +104,15 @@ export async function uploadEmoji({
   signal?: AbortSignal;
 }) {
   if (image.byteLength > 128 * 1024)
-    throw new Error("Emoji exceeds the proxy's 128 KiB limit");
+    throw new Error("Emoji exceeds Slack's 128 KiB limit");
   const form = new FormData();
   form.append("name", emojiName);
-  form.append("file", new Blob([image]), "image." + type);
-  await emojiProxyRequest(
-    env.SLACK_EMOJI_PROXY_URL,
-    env.SLACK_EMOJI_PROXY_TOKEN,
-    "upload",
-    { method: "POST", body: form, signal },
-  );
+  form.append("mode", "data");
+  form.append("image", new Blob([image]), "image." + type);
+  await slackEmojiRequest(env.SLACK_USER_TOKEN, "upload", {
+    form,
+    signal,
+  });
   await sleep(250);
 }
 
@@ -234,7 +223,7 @@ export async function createSticker({
 
       const emojiName = `${title}-${x + 1}-${y + 1}-${randomChars(8)}`;
       if (buf.byteLength > 128 * 1024)
-        throw new Error("Emoji exceeds the proxy's 128 KiB limit");
+        throw new Error("Emoji exceeds Slack's 128 KiB limit");
       await beforeUpload?.(emojiName);
       console.log(
         "trying to upload " + emojiName,

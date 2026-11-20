@@ -1,12 +1,13 @@
-import { test } from "node:test";
 import assert from "node:assert/strict";
+import { test } from "node:test";
+
 import {
   downloadSlackImage,
-  validDimensions,
-  validateStickerInput,
   validateImageMetadata,
+  validateStickerInput,
+  validDimensions,
 } from "./security.ts";
-import { emojiProxyRequest } from "./emoji-proxy.ts";
+import { slackEmojiRequest } from "./slack-emoji.ts";
 
 const mockFetch = (
   fn: (
@@ -86,43 +87,44 @@ test("download enforces streamed size and HTTP status", async () => {
   );
 });
 
-test("proxy uses bearer auth and multipart file contract without following redirects", async () => {
+test("Slack emoji upload uses bearer auth and multipart file contract", async () => {
   const form = new FormData();
   form.set("name", "test");
-  form.set("file", new Blob(["image"]), "image.png");
-  await emojiProxyRequest(
-    "https://proxy.test",
-    "secret",
+  form.set("mode", "data");
+  form.set("image", new Blob(["image"]), "image.png");
+  await slackEmojiRequest(
+    "xoxp-secret",
     "upload",
-    { method: "POST", body: form },
+    { form },
     mockFetch((url, init) => {
-      assert.equal(String(url), "https://proxy.test/api/emoji/upload");
+      assert.equal(String(url), "https://slack.com/api/emoji.add");
       assert.equal(init?.redirect, "error");
       assert.equal(
         new Headers(init?.headers).get("Authorization"),
-        "Bearer secret",
+        "Bearer xoxp-secret",
       );
       assert.equal((init?.body as FormData).get("name"), "test");
-      assert.ok((init?.body as FormData).get("file") instanceof Blob);
+      assert.equal((init?.body as FormData).get("mode"), "data");
+      assert.ok((init?.body as FormData).get("image") instanceof Blob);
+      assert.equal((init?.body as FormData).get("token"), "xoxp-secret");
       return Response.json({ ok: true });
     }),
   );
 });
 
-test("proxy fails closed on all errors and does not replay mutations", async () => {
+test("Slack emoji API fails closed on all errors and does not replay mutations", async () => {
   for (const response of [
-    Response.json({ ok: false }),
+    Response.json({ ok: false, error: "missing_scope" }),
     Response.json({ ok: false }, { status: 403 }),
     new Response("bad"),
-    Response.json({ ok: true }, { status: 429 }),
+    Response.json({ ok: false, error: "ratelimited" }),
   ]) {
     let calls = 0;
     await assert.rejects(
-      emojiProxyRequest(
-        "https://proxy.test",
-        "secret",
+      slackEmojiRequest(
+        "xoxp-secret",
         "remove",
-        { method: "DELETE" },
+        { name: "test" },
         mockFetch(() => {
           calls++;
           return response;
@@ -131,23 +133,18 @@ test("proxy fails closed on all errors and does not replay mutations", async () 
     );
     assert.equal(calls, 1);
   }
-  await assert.rejects(
-    emojiProxyRequest("http://proxy.test", "secret", "upload", {}),
-    /Invalid/,
-  );
 });
 
 test("upload retries 429 with the same form and respects Retry-After", async () => {
   const form = new FormData();
   form.set("name", "same-name");
-  form.set("file", new Blob(["image"]), "image.png");
+  form.set("image", new Blob(["image"]), "image.png");
   let calls = 0;
   const waits: number[] = [];
-  await emojiProxyRequest(
-    "https://proxy.test",
-    "secret",
+  await slackEmojiRequest(
+    "xoxp-secret",
     "upload",
-    { method: "POST", body: form },
+    { form },
     mockFetch((_url, init) => {
       assert.equal(init?.body, form);
       calls++;
@@ -167,11 +164,10 @@ test("upload retries are bounded and use exponential fallback", async () => {
   let calls = 0;
   const waits: number[] = [];
   await assert.rejects(
-    emojiProxyRequest(
-      "https://proxy.test",
-      "secret",
+    slackEmojiRequest(
+      "xoxp-secret",
       "upload",
-      {},
+      { form: new FormData() },
       mockFetch(() => {
         calls++;
         return new Response(null, { status: 429 });
@@ -180,7 +176,7 @@ test("upload retries are bounded and use exponential fallback", async () => {
         waits.push(ms);
       },
     ),
-    /HTTP 429/,
+    /ratelimited/,
   );
   assert.equal(calls, 5);
   assert.deepEqual(waits, [1250, 2250, 4250, 8250]);
@@ -190,11 +186,10 @@ test("upload does not replay ambiguous errors or shorten long Retry-After", asyn
   for (const status of [400, 401, 403, 409, 500, 502, 503, 504, 429]) {
     let calls = 0;
     await assert.rejects(
-      emojiProxyRequest(
-        "https://proxy.test",
-        "secret",
+      slackEmojiRequest(
+        "xoxp-secret",
         "upload",
-        {},
+        { form: new FormData() },
         mockFetch(() => {
           calls++;
           return new Response(null, {
@@ -211,11 +206,10 @@ test("upload does not replay ambiguous errors or shorten long Retry-After", asyn
   }
   let calls = 0;
   await assert.rejects(
-    emojiProxyRequest(
-      "https://proxy.test",
-      "secret",
+    slackEmojiRequest(
+      "xoxp-secret",
       "upload",
-      {},
+      { form: new FormData() },
       mockFetch(() => {
         calls++;
         throw new Error("timeout");
